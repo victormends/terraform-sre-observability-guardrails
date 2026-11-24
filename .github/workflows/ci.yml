@@ -1,0 +1,80 @@
+name: CI Guardrails
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  terraform-validate:
+    name: Terraform Format and Validate
+    runs-on: ubuntu-latest
+    env:
+      NEW_RELIC_API_KEY: "synthetic-placeholder-key"
+      NEW_RELIC_ACCOUNT_ID: "1234567"
+      NEW_RELIC_REGION: "US"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive
+
+      - name: Validate modules and synthetic example
+        run: |
+          set -euo pipefail
+          for dir in \
+            modules/nrql-deadman-watchdog \
+            modules/nrql-distinct-session-alert \
+            modules/cw-metric-stream-filter \
+            examples/synthetic-platform-stack; do
+            echo "=== Validating ${dir} ==="
+            terraform -chdir="${dir}" init -backend=false -input=false
+            terraform -chdir="${dir}" validate
+          done
+
+  python-guardrail-tests:
+    name: Guardrail Unit Tests & Kustomize Render (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest pyyaml
+
+      - name: Render and verify Kustomize Spot HA overlay
+        run: |
+          python - <<'PY'
+          import subprocess, yaml
+          rendered = subprocess.check_output(
+              ["kubectl", "kustomize", "k8s/spot-ha-overlay/overlays/prod-spot-ha"],
+              text=True,
+          )
+          docs = [d for d in yaml.safe_load_all(rendered) if d]
+          by_kind = {d["kind"]: d for d in docs}
+          dep = by_kind["Deployment"]
+          assert dep["spec"]["replicas"] == 2
+          spread = dep["spec"]["template"]["spec"]["topologySpreadConstraints"]
+          assert any(c["topologyKey"] == "kubernetes.io/hostname" and c["whenUnsatisfiable"] == "DoNotSchedule" for c in spread)
+          assert by_kind["PodDisruptionBudget"]["spec"]["minAvailable"] == 1
+          print("Rendered Kustomize overlay cleanly:", list(by_kind.keys()))
+          PY
+
+      - name: Run pytest
+        run: pytest -v

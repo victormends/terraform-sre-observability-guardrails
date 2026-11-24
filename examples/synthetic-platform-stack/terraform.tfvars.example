@@ -1,0 +1,6 @@
+environment                = "synthetic-prod"
+aws_region                 = "us-east-1"
+newrelic_account_id        = 1234567
+newrelic_region            = "US"
+metric_stream_role_arn     = "arn:aws:iam::000000000000:role/synthetic-cw-metric-stream-role"
+metric_stream_firehose_arn = "arn:aws:firehose:us-east-1:000000000000:deliverystream/synthetic-otel-metrics"

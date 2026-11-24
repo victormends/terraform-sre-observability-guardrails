@@ -1,0 +1,14 @@
+# Base PDB pairs with base Deployment (replicas: 1), which allows 0 voluntary disruptions
+# until overlays/prod-spot-ha scales the workload to replicas: 2 across distinct nodes.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: checkout-api-pdb
+  labels:
+    app.kubernetes.io/name: checkout-api
+    app.kubernetes.io/part-of: synthetic-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: checkout-api
